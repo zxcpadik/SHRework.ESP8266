@@ -12,7 +12,7 @@
 
 void Panic() {
   bool status = false;
-    for (int i = 0; i++; i < 60) {
+    for (int i = 0; i < 60; i++) {
       digitalWrite(LED_BUILTIN, status);
       status = !status;
       delay(500);
