@@ -86,6 +86,15 @@ SecureResult Create(Credentials credits) {
   deserializeJson(JSONDoc, payload);
   return SecureResult { .ok = JSONDoc["ok"], .status = JSONDoc["status"], .ID = JSONDoc["ID"] };
 }
+SecureResult Delete(Credentials credits) {
+  String URL = String(HOST) + "/api/v2/delete?username=" + credits.username + "&password=" + credits.password;
+
+  String payload = MakeGETRequest(URL);
+  if (payload.equals("null")) return SecureResult { .ok = false, .status = -1};
+
+  deserializeJson(JSONDoc, payload);
+  return SecureResult { .ok = JSONDoc["ok"], .status = JSONDoc["status"], .ID = 0 };
+}
 
 TicketResult TicketPush(Credentials credits, Ticket ticket) {
   String URL = String(HOST) + "/api/v1/push?username=" + credits.username + "&password=" + credits.password
@@ -187,6 +196,29 @@ uint TicketFlush(Credentials credits) {
   
   if (JSONDoc["ok"]) return JSONDoc["count"];
   else return 0;
+}
+
+int GetApiV1Version() {
+  String URL = String(HOST) + "/api/v1";
+
+  String payload = MakeGETRequest(URL);
+  if (payload.equals("null")) return -1;
+
+  deserializeJson(JSONDoc, payload);
+  
+  if (JSONDoc["ok"]) return JSONDoc["version"];
+  else return -1;
+}
+int GetApiV2Version() {
+    String URL = String(HOST) + "/api/v2";
+
+  String payload = MakeGETRequest(URL);
+  if (payload.equals("null")) return -1;
+
+  deserializeJson(JSONDoc, payload);
+  
+  if (JSONDoc["ok"]) return JSONDoc["version"];
+  else return -1;
 }
 
 const Credentials credits = Credentials { .username = SERVICE_USERNAME, .password = SERVICE_PASSWORD};
