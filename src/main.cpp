@@ -10,6 +10,16 @@
 #define WIFI_SSID "Barsik_2.4G"
 #define WIFI_PASS "Home4444"
 
+void Panic() {
+  bool status = false;
+    for (int i = 0; i++; i < 60) {
+      digitalWrite(LED_BUILTIN, status);
+      status = !status;
+      delay(500);
+    }
+    ESP.restart();
+}
+
 HTTPClient http;
 StaticJsonDocument<1024> JSONDoc;
 
@@ -43,6 +53,21 @@ struct SecureResult {
 struct Credentials {
   String username;
   String password;
+};
+struct TicketServiceResult {
+  bool ok;
+  short status;
+  long count;
+};
+struct TicketLastResult {
+  bool ok;
+  short status;
+  long offset;
+};
+struct ApiVersionResult {
+  bool ok;
+  short status;
+  int version;
 };
 
 String MakeGETRequest(String URL) {
@@ -175,50 +200,50 @@ TicketResult TicketPull(Credentials credits, uint offset = UINT_MAX, short count
     return tres;
   }
 }
-uint TicketGetLast(Credentials credits) {
+TicketLastResult TicketGetLast(Credentials credits) {
   String URL = String(HOST) + "/api/v1/last?username=" + credits.username + "&password=" + credits.password;
 
   String payload = MakeGETRequest(URL);
-  if (payload.equals("null")) return 0;
+  if (payload.equals("null")) return TicketLastResult {.ok = false, .status = -1, .offset = -1};
 
   deserializeJson(JSONDoc, payload);
   
-  if (JSONDoc["ok"]) return JSONDoc["last"];
-  else return 0;
+  if (JSONDoc["ok"]) return TicketLastResult {.ok = true, .status = JSONDoc["status"], .offset = JSONDoc["offset"]};
+  else return TicketLastResult {.ok = false, .status = JSONDoc["status"], .offset = -1};
 }
-uint TicketFlush(Credentials credits) {
+TicketServiceResult TicketFlush(Credentials credits) {
   String URL = String(HOST) + "/api/v1/flush?username=" + credits.username + "&password=" + credits.password;
 
   String payload = MakeGETRequest(URL);
-  if (payload.equals("null")) return 0;
+  if (payload.equals("null")) return TicketServiceResult {.ok = false, .status = -1, .count = -1};
 
   deserializeJson(JSONDoc, payload);
   
-  if (JSONDoc["ok"]) return JSONDoc["count"];
-  else return 0;
+  if (JSONDoc["ok"]) return TicketServiceResult {.ok = true, .status = JSONDoc["status"], .count = JSONDoc["count"]};
+  else return TicketServiceResult {.ok = false, .status = JSONDoc["status"], .count = -1};
 }
 
-int GetApiV1Version() {
+ApiVersionResult GetApiV1Version() {
   String URL = String(HOST) + "/api/v1";
 
   String payload = MakeGETRequest(URL);
-  if (payload.equals("null")) return -1;
+  if (payload.equals("null")) return ApiVersionResult {.ok = false, .status = -1, .version = -1};
 
   deserializeJson(JSONDoc, payload);
   
-  if (JSONDoc["ok"]) return JSONDoc["version"];
-  else return -1;
+  if (JSONDoc["ok"]) return ApiVersionResult {.ok = true, .status = JSONDoc["status"], .version = JSONDoc["version"]};
+  else return ApiVersionResult {.ok = false, .status = JSONDoc["status"], .version = -1};
 }
-int GetApiV2Version() {
-    String URL = String(HOST) + "/api/v2";
+ApiVersionResult GetApiV2Version() {
+  String URL = String(HOST) + "/api/v2";
 
   String payload = MakeGETRequest(URL);
-  if (payload.equals("null")) return -1;
+  if (payload.equals("null")) return ApiVersionResult {.ok = false, .status = -1, .version = -1};
 
   deserializeJson(JSONDoc, payload);
   
-  if (JSONDoc["ok"]) return JSONDoc["version"];
-  else return -1;
+  if (JSONDoc["ok"]) return ApiVersionResult {.ok = true, .status = JSONDoc["status"], .version = JSONDoc["version"]};
+  else return ApiVersionResult {.ok = false, .status = JSONDoc["status"], .version = -1};
 }
 
 const Credentials credits = Credentials { .username = SERVICE_USERNAME, .password = SERVICE_PASSWORD};
@@ -238,7 +263,9 @@ void setup() {
   digitalWrite(LED_BUILTIN, HIGH);
   delay(1000);
 
-  lastID = TicketGetLast(credits) + 1;
+  TicketLastResult tlastres = TicketGetLast(credits);
+  if (!tlastres.ok) Panic();
+  lastID = tlastres.offset;
 }
 
 unsigned long _pull_Last = 0;
