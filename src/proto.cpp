@@ -189,5 +189,7 @@ ApiVersionResult GetApiV2Version() {
   else return ApiVersionResult {.ok = false, .status = JSONDoc["status"], .version = -1};
 }
 
+#define API_V1_VER 1
+#define API_V2_VER 1
 
 #endif
