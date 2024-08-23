@@ -20,19 +20,19 @@ struct memblock {
 };
 
 
-void* safe_alloc(size_t size);
-void* safe_alloc(size_t size, uint8_t msg);
-void safe_free(void*);
+void* my_safe_alloc(size_t size);
+void* my_safe_alloc(size_t size, uint8_t msg);
+void my_safe_free(void*);
 
-size_t safe_max_mem();
-size_t safe_max_blocks();
-size_t safe_cur_mem();
-size_t safe_cur_blocks();
-size_t safe_fre_mem();
-size_t safe_fre_blocks();
-void safe_free_all();
-memblock* safe_get_blocks();
+size_t my_safe_max_mem();
+size_t my_safe_max_blocks();
+size_t my_safe_cur_mem();
+size_t my_safe_cur_blocks();
+size_t my_safe_fre_mem();
+size_t my_safe_fre_blocks();
+void my_safe_free_all();
+memblock* my_safe_get_blocks();
 
-char* safe_strdup(const char* str);
+char* my_safe_strdup(const char* str);
 
 #endif

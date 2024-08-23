@@ -1,10 +1,10 @@
+#ifndef __TCPPROTO__
+#define __TCPPROTO__
+
 #include <Arduino.h>
 #include <climits>
 #include <ESP8266WiFi.h>
 #include "../system/safemem.h"
-
-#ifndef __TCPPROTO__
-#define __TCPPROTO__
 
 #define HOST_MAIN "sh-rework.ru"
 #define HOST_BACKUP "192.168.1.105"
@@ -14,16 +14,24 @@
 #define SESSION_HASH_SIZE 32
 #define PROTO_GUARD "SHRework"
 
-#define SIG_READ    100777100
-#define SIG_RREAD   200777200
-#define SIG_WRITE   300777300
-#define SIG_RWRITE  400777400
-#define SIG_CROSS   500777500
+#define MAX_PACKET_SIZE 512
+
+#define SIG_SLAVE_VOID_READ  100777100
+#define SIG_SLAVE_VOID_WRITE 200777200
+#define SIG_SLAVE_DATA_READ  300777300
+#define SIG_SLAVE_DATA_WRITE 400777400
+#define SIG_MASTER_VOID_READ  100555100
+#define SIG_MASTER_VOID_WRITE 200555200
+#define SIG_MASTER_DATA_READ  300555300
+#define SIG_MASTER_DATA_WRITE 400555400
+#define SIG_CROSS  100999100
+#define SIG_CANCEL 200999200
+
 
 #define SecureResult_SIZE 9
 #define SecureResult_CID 13
 
-#define Credentials_SIZE 10
+#define Credentials_SIZE 4
 #define Credentials_CID 12
 
 #define TicketServiceResult_SIZE 9
@@ -46,42 +54,46 @@
 #define Ticket_SIZE 28
 
 struct RawDataPacket {
+  size_t buf_size = 0;
+  void* buf = nullptr;
+
   int GetSize() {
     return buf_size + 4;
   }
-  uint32_t buf_size;
-  void* buf;
-
   ushort getcid() {
     ushort ret = 0;
-    uint8_t* lptr = (uint8_t*)(this->buf);
+    uint8_t* lptr = (uint8_t*)buf;
     if (buf_size >= 2) memcpy(&ret, &lptr[0], 2);
     return ret;
   }
   bool getok() {
     bool ret = false;
-    uint8_t* lptr = (uint8_t*)(this->buf);
+    uint8_t* lptr = (uint8_t*)buf;
     if (buf_size >= 3) memcpy(&ret, &lptr[2], 1);
     return ret;
   }
   short getstatus() {
     short ret = 0;
-    uint8_t* lptr = (uint8_t*)(this->buf);
+    uint8_t* lptr = (uint8_t*)buf;
     if (buf_size >= 5) memcpy(&ret, &lptr[3], 2);
     return ret;
   }
 
   void _free() {
-    safe_free(buf);
+    my_safe_free(buf);
     buf_size = 0;
-    this->buf = nullptr;
   }
-  void Init(int size) {
-    buf = safe_alloc(size);
-    this->buf_size = size;
+  void _alloc(size_t size) {
+    buf = my_safe_alloc(size, 0);
+    buf_size = size;
   }
-  RawDataPacket() {}
-  RawDataPacket(int size) { Init(size); }
+  RawDataPacket() {
+    buf_size = 0;
+    buf = nullptr;
+  }
+  RawDataPacket(size_t size) {
+    _alloc(size);
+  }
   ~RawDataPacket() {
     _free();
   }
@@ -93,18 +105,16 @@ struct SecureResult {
   int16_t status;
   int32_t userid;
 
-  RawDataPacket to_packet() {
-    RawDataPacket p = RawDataPacket(SecureResult_SIZE);
+  void to_packet(RawDataPacket& p) {
+    p._alloc(SecureResult_SIZE);
 
     uint8_t* lptr = (uint8_t*)p.buf;
     memcpy(&lptr[0], (void*)&cid, 2);
     memcpy(&lptr[2], (void*)&ok, 1);
     memcpy(&lptr[3], (void*)&status, 2);
     memcpy(&lptr[5], (void*)&userid, 4);
-
-    return p;
   }
-  bool from_packet(RawDataPacket p) {
+  bool from_packet(RawDataPacket& p) {
     if (p.buf_size != SecureResult_SIZE) return false;
 
     uint8_t* lptr = (uint8_t*)p.buf;
@@ -122,10 +132,10 @@ struct SecureResult {
 };
 struct Credentials {
   uint16_t cid = Credentials_CID;
-  uint32_t username_len;
-  uint32_t password_len;
-  char* username;
-  char* password;
+  uint8_t username_len;
+  uint8_t password_len;
+  char username[256];
+  char password[256];
 
   String getUsername() {
     return String(username);
@@ -136,15 +146,15 @@ struct Credentials {
 
   Credentials() {}
   Credentials(String _username, String _password) {
-    this->username = safe_strdup(_username.c_str());
-    this->password = safe_strdup(_password.c_str());
+    strcpy(this->username, _username.c_str());
+    strcpy(this->password, _password.c_str());
 
     this->username_len = strlen(this->username);
     this->password_len = strlen(this->password);
   }
   Credentials(const char* _username, const char* _password) {
-    this->username = safe_strdup(_username);
-    this->password = safe_strdup(_password);
+    strcpy(this->username, _username);
+    strcpy(this->password, _password);
 
     this->username_len = strlen(_username);
     this->password_len = strlen(_password);
@@ -153,23 +163,21 @@ struct Credentials {
   size_t getUsernameLen() { return strlen(this->username); }
   size_t getPasswordLen() { return strlen(this->password); }
 
-  RawDataPacket to_packet() {
+  void to_packet(RawDataPacket& p) {
     size_t ulen = this->getUsernameLen();
     size_t plen = this->getPasswordLen();
 
     int size = Credentials_SIZE + ulen + plen;
-    RawDataPacket p = RawDataPacket(size);
+    p._alloc(size);
 
     uint8_t* lptr = (uint8_t*)p.buf;
     memcpy(&lptr[0], (void*)&cid, 2);
-    memcpy(&lptr[2], (void*)&ulen, 4);
-    memcpy(&lptr[6], (void*)&plen, 4);
-    memcpy(&lptr[10], (void*)username, ulen);
-    memcpy(&lptr[10 + ulen], (void*)password, plen);
-
-    return p;
+    lptr[2] = ulen;
+    lptr[3] = plen;
+    memcpy(&lptr[4], (void*)username, ulen);
+    memcpy(&lptr[4 + ulen], (void*)password, plen);
   }
-  bool from_packet(RawDataPacket p) {
+  bool from_packet(RawDataPacket& p) {
     if (p.buf_size != Credentials_SIZE) return false;
 
     uint8_t* lptr = (uint8_t*)p.buf;
@@ -178,25 +186,16 @@ struct Credentials {
     if (_cid != Credentials_CID) return false;
     cid = _cid;
 
-    memcpy((void*)&username_len, &lptr[2], 4);
-    memcpy((void*)&password_len, &lptr[6], 4);
+    this->username_len = lptr[2];
+    this->password_len = lptr[3];
 
-    username_len += (uint32_t)(lptr[9 + username_len] != 0);
-    password_len += (uint32_t)(lptr[9 + username_len + password_len] != 0);
+    memset(this->username, 0, sizeof(this->username));
+    memset(this->password, 0, sizeof(this->password));
 
-    username = (char*)safe_alloc(username_len);
-    password = (char*)safe_alloc(password_len);
-
-    memcpy(username, &lptr[10], username_len);
-    memcpy(password, &lptr[10 + username_len], password_len);
+    memcpy(this->username, &lptr[4], this->username_len);
+    memcpy(this->password, &lptr[4 + this->username_len], this->password_len);
     return true;
   }
-
-  void _free() {
-    safe_free(username);
-    safe_free(password);
-  }
-  ~Credentials() { _free(); }
 };
 struct TicketServiceResult {
   uint16_t cid = Credentials_CID;
@@ -205,7 +204,8 @@ struct TicketServiceResult {
   int32_t count;
 
   RawDataPacket to_packet() {
-    RawDataPacket p = RawDataPacket(SecureResult_SIZE);
+    RawDataPacket p;
+    p._alloc(SecureResult_SIZE);
 
     uint8_t* lptr = (uint8_t*)p.buf;
     memcpy(&lptr[0], (void*)&cid, 2);
@@ -231,6 +231,7 @@ struct TicketServiceResult {
     return true;
   }
 };
+
 struct ApiVersionResult {
   bool ok;
   short status;
@@ -249,8 +250,8 @@ struct Ticket {
   char* Date;
 
   void _free() {
-    if (Data) safe_free(Data);
-    if (Date) safe_free(Date);
+    if (Data) my_safe_free(Data);
+    if (Date) my_safe_free(Date);
   }
   ~Ticket() {
     _free();
@@ -267,25 +268,24 @@ struct TicketResult {
     for (int x = 0; x < this->t_count; x++) {
       this->tickets[x]._free();
     }
-    if (this->tickets) safe_free(this->tickets);
-
+    my_safe_free(this->tickets);
     this->t_count = 0;
   }
   TicketResult() {};
   TicketResult(short ticketsCount) {
-    tickets = (Ticket*)safe_alloc(sizeof(Ticket) * ticketsCount);
-    t_count = ticketsCount;
+    tickets = (Ticket*)my_safe_alloc(sizeof(Ticket) * ticketsCount, 3);
+    this->t_count = ticketsCount;
   }
   ~TicketResult() {
-    _free();
+    this->_free();
   }
 
-  RawDataPacket to_packet() {
+  void to_packet(RawDataPacket& p) {
     int size = TicketResult_SIZE;
     for (int i = 0; i < t_count; i++) {
       size += Ticket_SIZE + tickets[i].data_buf_len + tickets[i].date_buf_len;
     }
-    RawDataPacket p = RawDataPacket(size);
+    p._alloc(size);
 
     uint8_t* lptr = (uint8_t*)p.buf;
     memcpy(&lptr[0], (void*)&cid, 2);
@@ -308,10 +308,8 @@ struct TicketResult {
 
       offset += Ticket_SIZE + tickets[i].data_buf_len + tickets[i].date_buf_len;
     }
-
-    return p;
   }
-  bool from_packet(RawDataPacket p) {
+  bool from_packet(RawDataPacket& p) {
     if (p.buf_size < TicketResult_SIZE) return false;
 
     uint8_t* lptr = (uint8_t*)(p.buf);
@@ -324,7 +322,7 @@ struct TicketResult {
     memcpy((void*)&status, &lptr[3], 2);
     memcpy((void*)&t_count, &lptr[5], 1);
 
-    tickets = (Ticket*)safe_alloc(sizeof(Ticket) * t_count);
+    tickets = (Ticket*)my_safe_alloc(sizeof(Ticket) * t_count, 4);
     int offset = 6;
     for (int i = 0; i < t_count; i++) {
       memcpy((void*)&tickets[i].GlobalID, &lptr[offset], 4);
@@ -335,8 +333,8 @@ struct TicketResult {
       memcpy((void*)&tickets[i].data_buf_len, &lptr[offset + 20], 4);
       memcpy((void*)&tickets[i].date_buf_len, &lptr[offset + 24], 4);
 
-      tickets[i].Data = (char*)malloc(tickets[i].data_buf_len + 1);
-      tickets[i].Date = (char*)malloc(tickets[i].date_buf_len + 1);
+      tickets[i].Data = (char*)my_safe_alloc(tickets[i].data_buf_len + 1);
+      tickets[i].Date = (char*)my_safe_alloc(tickets[i].date_buf_len + 1);
 
       tickets[i].Data[tickets[i].data_buf_len] = 0;
       tickets[i].Date[tickets[i].date_buf_len] = 0;
@@ -376,17 +374,18 @@ struct SHProto_Ping {
   // TODO
 };
 
-
 bool Init();
 const char* GetHash();
 bool IsConnected();
-bool sync(int write);
-void SetTicketCallback(void (*callback)(TicketResult t));
+bool sync(bool _write);
+void SetTicketCallback(void (*callback)(TicketResult& t));
 bool Tick();
 bool Ping();
 void sig_TCP_down();
 
-bool Auth(Credentials credits, SecureResult* res);
+WiFiClient getClient();
+
+bool Auth(Credentials& credits, SecureResult& res);
 
 //SecureResult UpdatePass(String newpassword);
 //SecureResult Create(Credentials credits);
