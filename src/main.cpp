@@ -1,5 +1,5 @@
 #include "Arduino.h"
-#include <tcp/tcp-proto.h>
+#include <shr/tcp-proto.h>
 #include <Adafruit_SSD1306.h>
 
 #define FIRMWARE_BUILD 0
@@ -43,6 +43,7 @@ void D_Clear() {
 
 void setup() {
   Serial.begin(9600);
+
 
   Wire.begin(5, 4);
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
